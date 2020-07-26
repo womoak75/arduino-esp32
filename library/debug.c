@@ -19,11 +19,7 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "mbedtls/config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
+#include "common.h"
 
 #if defined(MBEDTLS_DEBUG_C)
 
@@ -132,7 +128,7 @@ void mbedtls_debug_print_ret( const mbedtls_ssl_context *ssl, int level,
         return;
 
     mbedtls_snprintf( str, sizeof( str ), "%s() returned %d (-0x%04x)\n",
-              text, ret, -ret );
+              text, ret, (unsigned int) -ret );
 
     debug_send_line( ssl, level, file, line, str );
 }

@@ -21,11 +21,7 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "mbedtls/config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
+#include "common.h"
 
 #if defined(MBEDTLS_OID_C)
 
@@ -761,7 +757,7 @@ int mbedtls_oid_get_numeric_string( char *buf, size_t size,
         if( !( oid->p[i] & 0x80 ) )
         {
             /* Last byte */
-            ret = mbedtls_snprintf( p, n, ".%d", value );
+            ret = mbedtls_snprintf( p, n, ".%u", value );
             OID_SAFE_SNPRINTF;
             value = 0;
         }

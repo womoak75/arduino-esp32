@@ -7,9 +7,13 @@ WARNING_CFLAGS ?= -Wall -Wextra
 WARNING_CXXFLAGS ?= -Wall -Wextra
 LDFLAGS ?=
 
-LOCAL_CFLAGS = $(WARNING_CFLAGS) -I../include -D_FILE_OFFSET_BITS=64
+MBEDTLS_TEST_PATH:=../tests/src
+MBEDTLS_TEST_OBJS:=$(patsubst %.c,%.o,$(wildcard ${MBEDTLS_TEST_PATH}/*.c))
+
+LOCAL_CFLAGS = $(WARNING_CFLAGS) -I../tests/include -I../include -D_FILE_OFFSET_BITS=64
 LOCAL_CXXFLAGS = $(WARNING_CXXFLAGS) -I../include -D_FILE_OFFSET_BITS=64
-LOCAL_LDFLAGS = -L../library 			\
+LOCAL_LDFLAGS = ${MBEDTLS_TEST_OBJS} 		\
+		-L../library 			\
 		-lmbedtls$(SHARED_SUFFIX)	\
 		-lmbedx509$(SHARED_SUFFIX)	\
 		-lmbedcrypto$(SHARED_SUFFIX)
@@ -18,10 +22,11 @@ include ../3rdparty/Makefile.inc
 LOCAL_CFLAGS+=$(THIRDPARTY_INCLUDES)
 
 ifndef SHARED
-DEP=../library/libmbedcrypto.a ../library/libmbedx509.a ../library/libmbedtls.a
+MBEDLIBS=../library/libmbedcrypto.a ../library/libmbedx509.a ../library/libmbedtls.a
 else
-DEP=../library/libmbedcrypto.$(DLEXT) ../library/libmbedx509.$(DLEXT) ../library/libmbedtls.$(DLEXT)
+MBEDLIBS=../library/libmbedcrypto.$(DLEXT) ../library/libmbedx509.$(DLEXT) ../library/libmbedtls.$(DLEXT)
 endif
+DEP=${MBEDLIBS} ${MBEDTLS_TEST_OBJS}
 
 ifdef DEBUG
 LOCAL_CFLAGS += -g3
@@ -53,8 +58,8 @@ endif
 APPS = \
 	aes/aescrypt2$(EXEXT) \
 	aes/crypt_and_hash$(EXEXT) \
-	hash/hello$(EXEXT) \
 	hash/generic_sum$(EXEXT) \
+	hash/hello$(EXEXT) \
 	pkey/dh_client$(EXEXT) \
 	pkey/dh_genprime$(EXEXT) \
 	pkey/dh_server$(EXEXT) \
@@ -68,39 +73,40 @@ APPS = \
 	pkey/pk_encrypt$(EXEXT) \
 	pkey/pk_sign$(EXEXT) \
 	pkey/pk_verify$(EXEXT) \
-	pkey/rsa_genkey$(EXEXT) \
 	pkey/rsa_decrypt$(EXEXT) \
 	pkey/rsa_encrypt$(EXEXT) \
+	pkey/rsa_genkey$(EXEXT) \
 	pkey/rsa_sign$(EXEXT) \
-	pkey/rsa_verify$(EXEXT) \
 	pkey/rsa_sign_pss$(EXEXT) \
+	pkey/rsa_verify$(EXEXT) \
 	pkey/rsa_verify_pss$(EXEXT) \
 	psa/crypto_examples$(EXEXT) \
 	psa/key_ladder_demo$(EXEXT) \
 	psa/psa_constant_names$(EXEXT) \
+	random/gen_entropy$(EXEXT) \
+	random/gen_random_ctr_drbg$(EXEXT) \
+	random/gen_random_havege$(EXEXT) \
 	ssl/dtls_client$(EXEXT) \
 	ssl/dtls_server$(EXEXT) \
+	ssl/mini_client$(EXEXT) \
 	ssl/ssl_client1$(EXEXT) \
 	ssl/ssl_client2$(EXEXT) \
+	ssl/ssl_context_info$(EXEXT) \
+	ssl/ssl_fork_server$(EXEXT) \
+	ssl/ssl_mail_client$(EXEXT) \
 	ssl/ssl_server$(EXEXT) \
 	ssl/ssl_server2$(EXEXT) \
-	ssl/ssl_fork_server$(EXEXT) \
-	ssl/mini_client$(EXEXT) \
-	ssl/ssl_mail_client$(EXEXT) \
-	random/gen_entropy$(EXEXT) \
-	random/gen_random_havege$(EXEXT) \
-	random/gen_random_ctr_drbg$(EXEXT) \
 	test/benchmark$(EXEXT) \
+	test/query_compile_time_config$(EXEXT) \
 	test/selftest$(EXEXT) \
 	test/udp_proxy$(EXEXT) \
 	test/zeroize$(EXEXT) \
-	test/query_compile_time_config$(EXEXT) \
 	util/pem2der$(EXEXT) \
 	util/strerror$(EXEXT) \
 	x509/cert_app$(EXEXT) \
-	x509/crl_app$(EXEXT) \
 	x509/cert_req$(EXEXT) \
 	x509/cert_write$(EXEXT) \
+	x509/crl_app$(EXEXT) \
 	x509/req_app$(EXEXT) \
 # End of APPS
 
@@ -126,11 +132,14 @@ ifndef WINDOWS
 all: fuzz
 endif
 
-fuzz:
+fuzz: ${MBEDTLS_TEST_OBJS}
 	$(MAKE) -C fuzz THIRDPARTY_INCLUDES=$(THIRDPARTY_INCLUDES)
 
-$(DEP):
+$(MBEDLIBS):
 	$(MAKE) -C ../library
+
+${MBEDTLS_TEST_OBJS}:
+	$(MAKE) -C ../tests mbedtls_test
 
 ifdef WINDOWS
 EXTRA_GENERATED += psa\psa_constant_names_generated.c
@@ -281,6 +290,10 @@ ssl/ssl_server$(EXEXT): ssl/ssl_server.c $(DEP)
 ssl/ssl_server2$(EXEXT): ssl/ssl_server2.c test/query_config.c $(DEP)
 	echo "  CC    ssl/ssl_server2.c"
 	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) ssl/ssl_server2.c test/query_config.c $(LOCAL_LDFLAGS) $(LDFLAGS) -o $@
+
+ssl/ssl_context_info$(EXEXT): ssl/ssl_context_info.c test/query_config.c $(DEP)
+	echo "  CC    ssl/ssl_context_info.c"
+	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) ssl/ssl_context_info.c test/query_config.c $(LOCAL_LDFLAGS) $(LDFLAGS) -o $@
 
 ssl/ssl_fork_server$(EXEXT): ssl/ssl_fork_server.c $(DEP)
 	echo "  CC    ssl/ssl_fork_server.c"

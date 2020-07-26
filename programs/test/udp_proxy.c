@@ -42,6 +42,7 @@
 #define mbedtls_printf          printf
 #define mbedtls_calloc          calloc
 #define mbedtls_free            free
+#define mbedtls_exit            exit
 #define MBEDTLS_EXIT_SUCCESS    EXIT_SUCCESS
 #define MBEDTLS_EXIT_FAILURE    EXIT_FAILURE
 #endif /* MBEDTLS_PLATFORM_C */
@@ -50,7 +51,7 @@
 int main( void )
 {
     mbedtls_printf( "MBEDTLS_NET_C not defined.\n" );
-    return( 0 );
+    mbedtls_exit( 0 );
 }
 #else
 
@@ -181,7 +182,7 @@ static void exit_usage( const char *name, const char *value )
         mbedtls_printf( " option %s: illegal value: %s\n", name, value );
 
     mbedtls_printf( USAGE );
-    exit( 1 );
+    mbedtls_exit( 1 );
 }
 
 static void get_options( int argc, char *argv[] )
@@ -456,7 +457,7 @@ static int ctx_buffer_append( ctx_buffer *buf,
     {
         if( ( ret = ctx_buffer_flush( buf ) ) <= 0 )
         {
-            mbedtls_printf( "ctx_buffer_flush failed with -%#04x", -ret );
+            mbedtls_printf( "ctx_buffer_flush failed with -%#04x", (unsigned int) -ret );
             return( ret );
         }
     }
@@ -495,7 +496,7 @@ static int dispatch_data( mbedtls_net_context *ctx,
     ret = mbedtls_net_send( ctx, data, len );
     if( ret < 0 )
     {
-        mbedtls_printf( "net_send returned -%#04x\n", -ret );
+        mbedtls_printf( "net_send returned -%#04x\n", (unsigned int) -ret );
     }
     return( ret );
 }
@@ -999,7 +1000,7 @@ exit:
     {
         char error_buf[100];
         mbedtls_strerror( ret, error_buf, 100 );
-        mbedtls_printf( "Last error was: -0x%04X - %s\n\n", - ret, error_buf );
+        mbedtls_printf( "Last error was: -0x%04X - %s\n\n", (unsigned int) -ret, error_buf );
         fflush( stdout );
     }
 #endif
@@ -1019,7 +1020,7 @@ exit:
     fflush( stdout ); getchar();
 #endif
 
-    return( exit_code );
+    mbedtls_exit( exit_code );
 }
 
 #endif /* MBEDTLS_NET_C */

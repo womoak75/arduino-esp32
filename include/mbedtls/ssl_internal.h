@@ -207,6 +207,12 @@
         : ( MBEDTLS_SSL_IN_CONTENT_LEN )                             \
         )
 
+/* Maximum size in bytes of list in sig-hash algorithm ext., RFC 5246 */
+#define MBEDTLS_SSL_MAX_SIG_HASH_ALG_LIST_LEN  65534
+
+/* Maximum size in bytes of list in supported elliptic curve ext., RFC 4492 */
+#define MBEDTLS_SSL_MAX_CURVE_LIST_LEN         65535
+
 /*
  * Check that we obey the standard's message size bounds
  */
@@ -298,6 +304,41 @@ static inline uint32_t mbedtls_ssl_get_input_buflen( const mbedtls_ssl_context *
  */
 #define MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
 #define MBEDTLS_TLS_EXT_ECJPAKE_KKPP_OK                 (1 << 1)
+
+/**
+ * \brief        This function checks if the remaining size in a buffer is
+ *               greater or equal than a needed space.
+ *
+ * \param cur    Pointer to the current position in the buffer.
+ * \param end    Pointer to one past the end of the buffer.
+ * \param need   Needed space in bytes.
+ *
+ * \return       Zero if the needed space is available in the buffer, non-zero
+ *               otherwise.
+ */
+static inline int mbedtls_ssl_chk_buf_ptr( const uint8_t *cur,
+                                           const uint8_t *end, size_t need )
+{
+    return( ( cur > end ) || ( need > (size_t)( end - cur ) ) );
+}
+
+/**
+ * \brief        This macro checks if the remaining size in a buffer is
+ *               greater or equal than a needed space. If it is not the case,
+ *               it returns an SSL_BUFFER_TOO_SMALL error.
+ *
+ * \param cur    Pointer to the current position in the buffer.
+ * \param end    Pointer to one past the end of the buffer.
+ * \param need   Needed space in bytes.
+ *
+ */
+#define MBEDTLS_SSL_CHK_BUF_PTR( cur, end, need )                        \
+    do {                                                                 \
+        if( mbedtls_ssl_chk_buf_ptr( ( cur ), ( end ), ( need ) ) != 0 ) \
+        {                                                                \
+            return( MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL );                  \
+        }                                                                \
+    } while( 0 )
 
 #ifdef __cplusplus
 extern "C" {
@@ -553,6 +594,10 @@ typedef struct mbedtls_ssl_hs_buffer mbedtls_ssl_hs_buffer;
  *   the IV is obtained by XOR'ing a static IV obtained at key extraction
  *   time with the 8-byte record sequence number, without prepending the
  *   latter to the encrypted record.
+ *
+ * Additionally, DTLS 1.2 + CID as well as TLS 1.3 use an inner plaintext
+ * which allows to add flexible length padding and to hide a record's true
+ * content type.
  *
  * In addition to type and version, the following parameters are relevant:
  * - The symmetric cipher algorithm to be used.
@@ -921,7 +966,60 @@ void mbedtls_ssl_optimize_checksum( mbedtls_ssl_context *ssl,
 
 #if defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED)
 int mbedtls_ssl_psk_derive_premaster( mbedtls_ssl_context *ssl, mbedtls_key_exchange_type_t key_ex );
-#endif
+
+/**
+ * Get the first defined PSK by order of precedence:
+ * 1. handshake PSK set by \c mbedtls_ssl_set_hs_psk() in the PSK callback
+ * 2. static PSK configured by \c mbedtls_ssl_conf_psk()
+ * Return a code and update the pair (PSK, PSK length) passed to this function
+ */
+static inline int mbedtls_ssl_get_psk( const mbedtls_ssl_context *ssl,
+    const unsigned char **psk, size_t *psk_len )
+{
+    if( ssl->handshake->psk != NULL && ssl->handshake->psk_len > 0 )
+    {
+        *psk = ssl->handshake->psk;
+        *psk_len = ssl->handshake->psk_len;
+    }
+
+    else if( ssl->conf->psk != NULL && ssl->conf->psk_len > 0 )
+    {
+        *psk = ssl->conf->psk;
+        *psk_len = ssl->conf->psk_len;
+    }
+
+    else
+    {
+        *psk = NULL;
+        *psk_len = 0;
+        return( MBEDTLS_ERR_SSL_PRIVATE_KEY_REQUIRED );
+    }
+
+    return( 0 );
+}
+
+#if defined(MBEDTLS_USE_PSA_CRYPTO)
+/**
+ * Get the first defined opaque PSK by order of precedence:
+ * 1. handshake PSK set by \c mbedtls_ssl_set_hs_psk_opaque() in the PSK
+ *    callback
+ * 2. static PSK configured by \c mbedtls_ssl_conf_psk_opaque()
+ * Return an opaque PSK
+ */
+static inline psa_key_handle_t mbedtls_ssl_get_opaque_psk(
+    const mbedtls_ssl_context *ssl )
+{
+    if( ssl->handshake->psk_opaque != 0 )
+        return( ssl->handshake->psk_opaque );
+
+    if( ssl->conf->psk_opaque != 0 )
+        return( ssl->conf->psk_opaque );
+
+    return( 0 );
+}
+#endif /* MBEDTLS_USE_PSA_CRYPTO */
+
+#endif /* MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED */
 
 #if defined(MBEDTLS_PK_C)
 unsigned char mbedtls_ssl_sig_from_pk( mbedtls_pk_context *pk );

@@ -504,6 +504,7 @@ int mbedtls_asn1_get_serial_bitstring( unsigned char **p,
     val->len = len;
     val->p = *p;
 
+    *p += len;
     return ( 0 );
 }
 

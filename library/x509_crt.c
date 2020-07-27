@@ -2125,6 +2125,12 @@ int mbedtls_x509_crt_info( char *buf, size_t size, const char *prefix,
                           (int) mbedtls_pk_get_bitlen( &crt->pk ) );
     MBEDTLS_X509_SAFE_SNPRINTF;
 
+    /* SHA256 Fingerprint */
+    ret = mbedtls_snprintf( p, n, "\n%sfingerprint       : ", prefix );
+    MBEDTLS_X509_SAFE_SNPRINTF;
+
+    ret = mbedtls_x509_crt_fprint(p, n, crt, MBEDTLS_MD_SHA256);
+    MBEDTLS_X509_SAFE_SNPRINTF;
     /*
      * Optional extensions
      */
@@ -2195,6 +2201,69 @@ int mbedtls_x509_crt_info( char *buf, size_t size, const char *prefix,
     MBEDTLS_X509_SAFE_SNPRINTF;
 
     return( (int) ( size - n ) );
+}
+
+/*
+ * Return the fingerprint in a format akin to OpenSSL and the Windows Truststore/C# interface.
+ */
+
+int mbedtls_x509_crt_fprint(char * buff, size_t len, const mbedtls_x509_crt * cert, mbedtls_md_type_t tpe)
+{
+    const mbedtls_md_info_t * mdt = mbedtls_md_info_from_type(tpe ? tpe : MBEDTLS_MD_SHA256);
+    const char * nme = mbedtls_md_get_name(mdt);
+    const size_t dl = mbedtls_md_get_size(mdt);
+
+    unsigned char *output = NULL;
+    char *p = buff, * ep = buff + len-4;
+    mbedtls_md_context_t ctx;
+    int ret = -1;
+    size_t l,i;
+
+    mbedtls_md_init(&ctx);
+    if (
+        ((output = (unsigned char *)mbedtls_calloc(dl,1)) == NULL) ||
+        ((ret = mbedtls_md_setup(&ctx, mdt, 9)) != 0) ||
+        ((ret = mbedtls_md_starts (&ctx)) != 0) ||
+        ((ret = mbedtls_md_update (&ctx, cert->raw.p, cert->raw.len)) != 0) ||
+        ((ret = mbedtls_md_finish (&ctx, output)) != 0)
+        ) {
+         goto erx;
+    };
+
+    p = buff;
+
+    l = strlen(nme);
+    if (l > (size_t)(ep-p)) l = (size_t)(ep-p);
+
+    memcpy(p, nme, l);
+    p += l;
+    *p++ = ' ';
+
+    for(i = 0; i < dl; i++) {
+        int c1 = output[i] >> 4;
+        int c2 = output[i] & 0xF;
+        if (p < ep)
+            *(p++) = (c1 < 10) ? '0' + c1 : 'A' + (c1 - 10);
+        if (p < ep)
+            *(p++) = (c2 < 10) ? '0' + c2 : 'A' + (c2 - 10);
+        if (p < ep && i != dl-1)
+            *(p++) = ':';
+    };
+
+    // Add 3 ominous dots, like ellipses, if our buffer falls short.
+    //
+    if (p == ep) {
+        *(p++)='.';*(p++)='.';*(p++)='.';
+    };
+    *p= '\0';
+
+    // return the bytes written into buff.
+    ret = p - buff;
+erx:
+    mbedtls_md_free(&ctx);
+    if (output) mbedtls_free(output);
+
+    return ret;
 }
 
 struct x509_crt_verify_string {
@@ -3347,6 +3416,46 @@ void mbedtls_x509_crt_free( mbedtls_x509_crt *crt )
     }
     while( cert_cur != NULL );
 }
+
+int mbedtls_x509_get_certificate_set(unsigned char **p, unsigned char * end, mbedtls_x509_crt ** chain) {
+  size_t len = end - *p;
+
+  // We allow for this function to be called multiple times (e.g. for a multi-party
+  // nested signature in S/MIME).
+  //
+  if (*chain == NULL) {
+    if ((*chain = (mbedtls_x509_crt *)mbedtls_calloc( 1, sizeof(mbedtls_x509_crt))) == NULL)
+      return MBEDTLS_ERR_X509_ALLOC_FAILED;
+    mbedtls_x509_crt_init(*chain);
+  };
+
+  while (mbedtls_x509_crt_parse_der(*chain, *p, len) == 0) { /* and end check !*/
+    // We keep them in the order as given on the wire. This means that usually
+    // the leaf is first; followed by the chain to the top. But not always - quite a
+    // few german institutions do it the other way round.
+    //
+    // But given that some callers will need this set to be ordered - we do not try
+    // to order them 'right' just yet.
+    //
+    mbedtls_x509_crt * crt;
+    for (crt = *chain; crt->next; crt = crt->next);
+
+    // Bit of a cheat - we do not get the actual legth eaten returned; so
+    // get it from the raw length.
+    //
+    *p += crt->raw.len;
+    len -= crt->raw.len;
+
+  }; /* while there are still certs in the sequence */
+
+#ifdef MBEDTLS_TS_DEBUG
+  int i = 0;
+  for (mbedtls_x509_crt * crt = *chain; crt; crt = crt->next) i++;
+  MBEDTLS_TS_DEBUG_PRINTF("Extracted %d certs", i);
+#endif
+
+  return 0;
+};
 
 #if defined(MBEDTLS_ECDSA_C) && defined(MBEDTLS_ECP_RESTARTABLE)
 /*

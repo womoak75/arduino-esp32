@@ -149,6 +149,8 @@ OBJS_X509= \
 	   x509_csr.o \
 	   x509write_crt.o \
 	   x509write_csr.o \
+           signer_info.o \
+           ts.o \
 	   # This line is intentionally left blank
 
 OBJS_TLS= \

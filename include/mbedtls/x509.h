@@ -293,6 +293,21 @@ int mbedtls_x509_time_is_past( const mbedtls_x509_time *to );
  */
 int mbedtls_x509_time_is_future( const mbedtls_x509_time *from );
 
+/**
+ * \brief         Parse an ASN1_UTC_TIME (yearlen=2) or ASN1_GENERALIZED_TIME
+ *                (yearlen=4) field.
+ *
+ * \param p       Pointer to DER struct, set to end on successful completion.
+ * \param len     Length of the DER time structure.
+ * \param yearlen Length of the year (2 or 4).
+ * \param tm      Struct to populate on success
+ *
+ * \return         0 on success, error code otherwise.
+ */
+int x509_parse_time( unsigned char **p, size_t len, size_t yearlen,
+                            mbedtls_x509_time *tm );
+
+
 #if defined(MBEDTLS_SELF_TEST)
 
 /**
@@ -346,6 +361,8 @@ int mbedtls_x509_write_names( unsigned char **p, unsigned char *start,
 int mbedtls_x509_write_sig( unsigned char **p, unsigned char *start,
                     const char *oid, size_t oid_len,
                     unsigned char *sig, size_t size );
+int mbedtls_x509_get_algorithm_itentifier(unsigned char **p, unsigned char * end, int * alg);
+int mbedtls_x509_get_algorithm_itentifiers(unsigned char **p, unsigned char * end,  int * alg);
 
 #define MBEDTLS_X509_SAFE_SNPRINTF                          \
     do {                                                    \

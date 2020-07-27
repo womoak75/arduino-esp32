@@ -533,7 +533,7 @@ static int x509_date_is_valid(const mbedtls_x509_time *t )
  * Parse an ASN1_UTC_TIME (yearlen=2) or ASN1_GENERALIZED_TIME (yearlen=4)
  * field.
  */
-static int x509_parse_time( unsigned char **p, size_t len, size_t yearlen,
+int x509_parse_time( unsigned char **p, size_t len, size_t yearlen,
                             mbedtls_x509_time *tm )
 {
     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
@@ -1013,6 +1013,60 @@ int mbedtls_x509_time_is_future( const mbedtls_x509_time *from )
     return( 0 );
 }
 #endif /* MBEDTLS_HAVE_TIME_DATE */
+
+int mbedtls_x509_get_algorithm_itentifier(unsigned char **p, unsigned char * end, int * alg)
+{
+  size_t len;
+  int ret;
+  *alg = -1;
+
+  if ( ( ret = mbedtls_asn1_get_tag(p, end, &len, MBEDTLS_ASN1_OID) ) != 0 ) {
+    return ( MBEDTLS_ERR_X509_INVALID_FORMAT );
+  }
+  unsigned char * ep = *p + len;
+
+  mbedtls_x509_buf oid;
+  oid.p = *p;
+  oid.len = len;
+
+  mbedtls_md_type_t md_alg;
+  mbedtls_pk_type_t pk_alg;
+
+  if ( ( ret = mbedtls_oid_get_md_alg(&oid, &md_alg)) == 0) {
+    *alg = (int) md_alg;
+  } else if ( ( ret = mbedtls_oid_get_pk_alg(&oid, &pk_alg)) == 0) {
+    *alg = (int) pk_alg;
+  } else {
+    *alg = -1;
+  }
+  *p += len;
+
+  return 0;
+}
+
+int mbedtls_x509_get_algorithm_itentifiers(unsigned char **p, unsigned char * end,  int * alg)
+{
+  size_t len;
+  int ret;
+  *alg = -1;
+
+  if ( ( ret = mbedtls_asn1_get_tag( p, end, &len,
+                                     MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE ) ) != 0 ) {
+    return ( MBEDTLS_ERR_X509_INVALID_FORMAT );
+  }
+  unsigned char * ep = *p + len;
+
+  while (*p < ep) {
+    if ( mbedtls_asn1_get_tag(p, end, &len, MBEDTLS_ASN1_NULL) == 0 ) {
+      break;
+    };
+    int out = -1;
+    if (0 == mbedtls_x509_get_algorithm_itentifier(p, end, &out) && out != -1)
+      *alg = out;
+  };
+
+  return 0;
+}
 
 #if defined(MBEDTLS_SELF_TEST)
 

@@ -527,6 +527,23 @@ int mbedtls_x509_crt_info( char *buf, size_t size, const char *prefix,
                    const mbedtls_x509_crt *crt );
 
 /**
+ * \brief          This function returns a buffer with the fingerprint of
+ *                 a certificate (i.e. taken of the raw DER encoded blob)
+ *                 and outputs this in the same style as OpenSSL and
+ *                 the windows truststore/C# interface.
+ *
+ * \param buf      Buffer to write to
+ * \param size     Maximum size of buffer
+ * \param crt      The X509 certificate to fingerprint.
+ * \param mdtype   The digest to use; if set to MBEDTLS_MD_NONE the default
+ *                 SHA256 will be used.
+ *
+ * \return         The length of the string written (not including the
+ *                 terminated nul byte), or a negative error code.
+ */
+int mbedtls_x509_crt_fprint(char * buf, size_t size, const mbedtls_x509_crt * crt, mbedtls_md_type_t mdtype);
+
+/**
  * \brief          Returns an informational string about the
  *                 verification status of a certificate.
  *
@@ -1076,6 +1093,8 @@ int mbedtls_x509write_crt_pem( mbedtls_x509write_cert *ctx, unsigned char *buf, 
                        void *p_rng );
 #endif /* MBEDTLS_PEM_WRITE_C */
 #endif /* MBEDTLS_X509_CRT_WRITE_C */
+
+int mbedtls_x509_get_certificate_set(unsigned char **p, unsigned char * end, mbedtls_x509_crt ** chain);
 
 #ifdef __cplusplus
 }

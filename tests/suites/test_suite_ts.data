@@ -1,0 +1,36 @@
+Check sig HelloWorld
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+ts_verify:"data_files/interop_ts_ca.der":"data_files/signed_hello_world.der":"Hello World\n":0
+
+Check CA ok
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+verify_ca:"data_files/test-ca.der":0
+
+Check CA ok
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+verify_ca:"data_files/interop_ts_ca.der":0
+
+Check evil CA i-fail
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+verify_ca:"data_files/interop_ts_ca_eve1.der":1
+
+Check evil CA s-fail
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+verify_ca:"data_files/interop_ts_ca_eve2.der":1
+
+Check evil CA si-fail
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+verify_ca:"data_files/interop_ts_ca_eve.der":1
+
+Check evil CA sig I
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+ts_verify:"data_files/interop_ts_ca_eve1.der":"data_files/signed_hello_world.der":"Hello World\n":1
+
+Check evil CA sig S
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+ts_verify:"data_files/interop_ts_ca_eve2.der":"data_files/signed_hello_world.der":"Hello World\n":1
+
+Check evil CA sig IS
+depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_RSA_C:MBEDTLS_SHA1_C
+ts_verify:"data_files/interop_ts_ca_eve.der":"data_files/signed_hello_world.der":"Hello World\n":1
+

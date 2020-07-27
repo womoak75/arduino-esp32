@@ -1,0 +1,70 @@
+/* BEGIN_HEADER */
+#include "mbedtls/bignum.h"
+#include "mbedtls/x509.h"
+#include "mbedtls/x509_crt.h"
+#include "mbedtls/x509_crl.h"
+#include "mbedtls/x509_csr.h"
+#include "mbedtls/pem.h"
+#include "mbedtls/oid.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/ts.h"
+#include "string.h"
+/* END_HEADER */
+
+/* BEGIN_DEPENDENCIES
+ * END_DEPENDENCIES
+ */
+
+/* BEGIN_CASE */
+
+void ts_verify(char * ca_file, char * der_ts_file, char * payload, int fail)
+{
+    mbedtls_x509_crt * chain;
+    unsigned char der[1024 * 16];
+    size_t der_len = 0;
+
+    /* Generate with
+     *  echo Hello World |  openssl ts -query -cert -sha256 -no_nonce | curl -H "Content-type: application/timestamp-query" --data-binary @- https://interop.redwax.eu/test/timestamp > out.der
+     */
+    TEST_ASSERT((chain = (mbedtls_x509_crt*)malloc(sizeof(mbedtls_x509_crt))) != NULL);
+    mbedtls_x509_crt_init(chain);
+
+    TEST_ASSERT(0 ==  mbedtls_x509_crt_parse_file( chain, ca_file));
+
+    FILE * f = fopen( der_ts_file, "r" );
+    TEST_ASSERT( NULL != f );
+    der_len= fread( der, 1, sizeof( der ), f );
+    TEST_ASSERT( 0 < der_len );
+
+    fclose( f );
+
+    TEST_ASSERT(mbedtls_ts_verify_payload_with_der(der, der_len, (unsigned char *)payload, strlen(payload), chain)  ? fail : !fail );
+
+exit:
+    free(chain);
+    return;
+}
+/* END_CASE */
+
+/* BEGIN_CASE */
+void verify_ca(const char * file, int fail)
+{
+  mbedtls_x509_crt * crt;
+
+  TEST_ASSERT((crt = (mbedtls_x509_crt*)malloc(sizeof(mbedtls_x509_crt))) != NULL);
+  mbedtls_x509_crt_init(crt);
+  TEST_ASSERT(0 ==  mbedtls_x509_crt_parse_file( crt, file));
+
+char buff[1024];
+  mbedtls_x509_crt_info(buff,1024,"",crt);
+fprintf(stderr,"%s",buff);
+
+  uint32_t results = 0;
+  int ret = mbedtls_x509_crt_verify(crt, crt, NULL /* no CRL */, NULL /* any name fine */, &results, NULL, NULL);
+  fprintf(stderr,"%d %d %x %x\n", ret, -ret, -ret, results);
+  if (ret == 0)
+	  TEST_ASSERT(fail == 0);
+  else
+	  TEST_ASSERT(fail != 0);
+}
+/* END_CASE */

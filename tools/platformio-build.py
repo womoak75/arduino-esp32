@@ -25,18 +25,17 @@ http://arduino.cc/en/Reference/HomePage
 # Extends: https://github.com/platformio/platform-espressif32/blob/develop/builder/main.py
 
 from os.path import abspath, basename, isdir, isfile, join
-
+from copy import deepcopy
 from SCons.Script import DefaultEnvironment, SConscript
 
 env = DefaultEnvironment()
 platform = env.PioPlatform()
 board_config = env.BoardConfig()
 build_mcu = board_config.get("build.mcu", "").lower()
-partitions_name = board_config.get(
-    "build.partitions", board_config.get("build.arduino.partitions", "")
-)
+partitions_name = board_config.get("build.partitions", board_config.get("build.arduino.partitions", ""))
 
 FRAMEWORK_DIR = platform.get_package_dir("framework-arduinoespressif32")
+FRAMEWORK_LIBS_DIR = platform.get_package_dir("framework-arduinoespressif32-libs")
 assert isdir(FRAMEWORK_DIR)
 
 
@@ -51,21 +50,17 @@ def get_partition_table_csv(variants_dir):
 
     if partitions_name:
         # A custom partitions file is selected
-        if isfile(join(variant_partitions_dir, partitions_name)):
+        if isfile(env.subst(join(variant_partitions_dir, partitions_name))):
             return join(variant_partitions_dir, partitions_name)
 
         return abspath(
             join(fwpartitions_dir, partitions_name)
-            if isfile(join(fwpartitions_dir, partitions_name))
+            if isfile(env.subst(join(fwpartitions_dir, partitions_name)))
             else partitions_name
         )
 
     variant_partitions = join(variant_partitions_dir, "partitions.csv")
-    return (
-        variant_partitions
-        if isfile(variant_partitions)
-        else join(fwpartitions_dir, "default.csv")
-    )
+    return variant_partitions if isfile(env.subst(variant_partitions)) else join(fwpartitions_dir, "default.csv")
 
 
 def get_bootloader_image(variants_dir):
@@ -81,53 +76,52 @@ def get_bootloader_image(variants_dir):
 
     return (
         variant_bootloader
-        if isfile(variant_bootloader)
-        else join(
-            FRAMEWORK_DIR,
-            "tools",
-            "sdk",
-            build_mcu,
-            "bin",
-            "bootloader_${__get_board_boot_mode(__env__)}_${__get_board_f_flash(__env__)}.bin",
+        if isfile(env.subst(variant_bootloader))
+        else generate_bootloader_image(
+            join(
+                FRAMEWORK_LIBS_DIR,
+                build_mcu,
+                "bin",
+                "bootloader_${__get_board_boot_mode(__env__)}_${__get_board_f_boot(__env__)}.elf",
+            )
         )
     )
 
 
-def get_patched_bootloader_image(original_bootloader_image, bootloader_offset):
-    patched_bootloader_image = join(env.subst("$BUILD_DIR"), "patched_bootloader.bin")
+def generate_bootloader_image(bootloader_elf):
     bootloader_cmd = env.Command(
-        patched_bootloader_image,
-        original_bootloader_image,
+        join("$BUILD_DIR", "bootloader.bin"),
+        bootloader_elf,
         env.VerboseAction(
             " ".join(
                 [
-                    '"$PYTHONEXE"',
-                    join(
-                        platform.get_package_dir("tool-esptoolpy") or "", "esptool.py"
-                    ),
+                    '"$PYTHONEXE" "$OBJCOPY"',
                     "--chip",
                     build_mcu,
-                    "merge_bin",
-                    "-o",
-                    "$TARGET",
+                    "elf2image",
                     "--flash_mode",
                     "${__get_board_flash_mode(__env__)}",
                     "--flash_freq",
-                    "${__get_board_f_flash(__env__)}",
+                    "${__get_board_f_image(__env__)}",
                     "--flash_size",
                     board_config.get("upload.flash_size", "4MB"),
-                    "--target-offset",
-                    bootloader_offset,
-                    bootloader_offset,
-                    "$SOURCE",
+                    "-o",
+                    "$TARGET",
+                    "$SOURCES",
                 ]
             ),
-            "Updating bootloader headers",
+            "Building $TARGET",
         ),
     )
+
     env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", bootloader_cmd)
 
-    return patched_bootloader_image
+    # Because the Command always returns a NodeList, we have to
+    # access the first element in the list to get the Node object
+    # that actually represents the bootloader image.
+    # Also, this file is later used in generic Python code, so the
+    # Node object in converted to a generic string
+    return str(bootloader_cmd[0])
 
 
 def add_tinyuf2_extra_image():
@@ -137,14 +131,11 @@ def add_tinyuf2_extra_image():
     )
 
     # Add the UF2 image only if it exists and it's not already added
-    if not isfile(tinuf2_image):
-        print("Warning! The `%s` UF2 bootloader image doesn't exist" % tinuf2_image)
+    if not isfile(env.subst(tinuf2_image)):
+        print("Warning! The `%s` UF2 bootloader image doesn't exist" % env.subst(tinuf2_image))
         return
 
-    if any(
-        "tinyuf2.bin" == basename(extra_image[1])
-        for extra_image in env.get("FLASH_EXTRA_IMAGES", [])
-    ):
+    if any("tinyuf2.bin" == basename(extra_image[1]) for extra_image in env.get("FLASH_EXTRA_IMAGES", [])):
         print("Warning! An extra UF2 bootloader image is already added!")
         return
 
@@ -153,11 +144,7 @@ def add_tinyuf2_extra_image():
             (
                 board_config.get(
                     "upload.arduino.uf2_bootloader_offset",
-                    (
-                        "0x2d0000"
-                        if env.subst("$BOARD").startswith("adafruit")
-                        else "0x410000"
-                    ),
+                    ("0x2d0000" if env.subst("$BOARD").startswith("adafruit") else "0x410000"),
                 ),
                 tinuf2_image,
             ),
@@ -171,17 +158,28 @@ def add_tinyuf2_extra_image():
 
 SConscript(
     join(
-        DefaultEnvironment()
-        .PioPlatform()
-        .get_package_dir("framework-arduinoespressif32"),
-        "tools",
-        "platformio-build-%s.py" % build_mcu,
+        FRAMEWORK_LIBS_DIR,
+        build_mcu,
+        "platformio-build.py",
     )
+)
+
+#
+# Additional flags specific to Arduino core (not based on IDF)
+#
+
+env.Append(
+    CFLAGS=["-Werror=return-type"],
+    CXXFLAGS=["-Werror=return-type"],
 )
 
 #
 # Target: Build Core Library
 #
+
+# Set -DARDUINO_CORE_BUILD only for the core library
+corelib_env = env.Clone()
+corelib_env.Append(CPPDEFINES=["ARDUINO_CORE_BUILD"])
 
 libs = []
 
@@ -192,13 +190,14 @@ if "build.variants_dir" in board_config:
 
 if "build.variant" in board_config:
     env.Append(CPPPATH=[join(variants_dir, board_config.get("build.variant"))])
-    env.BuildSources(
+    corelib_env.Append(CPPPATH=[join(variants_dir, board_config.get("build.variant"))])
+    corelib_env.BuildSources(
         join("$BUILD_DIR", "FrameworkArduinoVariant"),
         join(variants_dir, board_config.get("build.variant")),
     )
 
 libs.append(
-    env.BuildLibrary(
+    corelib_env.BuildLibrary(
         join("$BUILD_DIR", "FrameworkArduino"),
         join(FRAMEWORK_DIR, "cores", board_config.get("build.core")),
     )
@@ -210,47 +209,21 @@ env.Prepend(LIBS=libs)
 # Process framework extra images
 #
 
-# Starting with v2.0.4 the Arduino core contains updated bootloader images that have
-# innacurate default headers. This results in bootloops if firmware is flashed via
-# OpenOCD (e.g. debugging or uploading via debug tools). For this reason, before
-# uploading or debugging we need to adjust the bootloader binary according to
-# the values of the --flash-size and --flash-mode arguments.
-# Note: This behavior doesn't occur if uploading is done via esptoolpy, as esptoolpy
-# overrides the binary image headers before flashing.
-
-bootloader_patch_required = bool(
-    env.get("PIOFRAMEWORK", []) == ["arduino"]
-    and (
-        "debug" in env.GetBuildType()
-        or env.subst("$UPLOAD_PROTOCOL") in board_config.get("debug.tools", {})
-        or env.IsIntegrationDump()
-    )
-)
-
-bootloader_image_path = get_bootloader_image(variants_dir)
-bootloader_offset = "0x1000" if build_mcu in ("esp32", "esp32s2") else "0x0000"
-if bootloader_patch_required:
-    bootloader_image_path = get_patched_bootloader_image(
-        bootloader_image_path, bootloader_offset
-    )
-
 env.Append(
     LIBSOURCE_DIRS=[join(FRAMEWORK_DIR, "libraries")],
     FLASH_EXTRA_IMAGES=[
-        (bootloader_offset, bootloader_image_path),
+        (
+            "0x1000" if build_mcu in ("esp32", "esp32s2") else "0x0000",
+            get_bootloader_image(variants_dir),
+        ),
         ("0x8000", join(env.subst("$BUILD_DIR"), "partitions.bin")),
         ("0xe000", join(FRAMEWORK_DIR, "tools", "partitions", "boot_app0.bin")),
     ]
-    + [
-        (offset, join(FRAMEWORK_DIR, img))
-        for offset, img in board_config.get("upload.arduino.flash_extra_images", [])
-    ],
+    + [(offset, join(FRAMEWORK_DIR, img)) for offset, img in board_config.get("upload.arduino.flash_extra_images", [])],
 )
 
 # Add an extra UF2 image if the 'TinyUF2' partition is selected
-if partitions_name.endswith("tinyuf2.csv") or board_config.get(
-    "upload.arduino.tinyuf2_image", ""
-):
+if partitions_name.endswith("tinyuf2.csv") or board_config.get("upload.arduino.tinyuf2_image", ""):
     add_tinyuf2_extra_image()
 
 #
@@ -263,9 +236,16 @@ partition_table = env.Command(
     join("$BUILD_DIR", "partitions.bin"),
     "$PARTITIONS_TABLE_CSV",
     env.VerboseAction(
-        '"$PYTHONEXE" "%s" -q $SOURCE $TARGET'
-        % join(FRAMEWORK_DIR, "tools", "gen_esp32part.py"),
+        '"$PYTHONEXE" "%s" -q $SOURCE $TARGET' % join(FRAMEWORK_DIR, "tools", "gen_esp32part.py"),
         "Generating partitions $TARGET",
     ),
 )
 env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", partition_table)
+
+#
+#  Adjust the `esptoolpy` command in the `ElfToBin` builder with firmware checksum offset
+#
+
+action = deepcopy(env["BUILDERS"]["ElfToBin"].action)
+action.cmd_list = env["BUILDERS"]["ElfToBin"].action.cmd_list.replace("-o", "--elf-sha256-offset 0xb0 -o")
+env["BUILDERS"]["ElfToBin"].action = action

@@ -3,9 +3,10 @@
 export PLATFORMIO_ESP32_PATH="$HOME/.platformio/packages/framework-arduinoespressif32"
 PLATFORMIO_ESP32_URL="https://github.com/platformio/platform-espressif32.git"
 
-TOOLCHAIN_VERSION="8.4.0+2021r2-patch3"
-ESPTOOLPY_VERSION="~1.30100.0"
+TOOLCHAIN_VERSION="12.2.0+20230208"
+ESPTOOLPY_VERSION="~1.40501.0"
 ESPRESSIF_ORGANIZATION_NAME="espressif"
+SDKCONFIG_DIR="$PLATFORMIO_ESP32_PATH/tools/esp32-arduino-libs"
 
 echo "Installing Python Wheel ..."
 pip install wheel > /dev/null 2>&1
@@ -30,9 +31,15 @@ replace_script+="data['packages']['toolchain-riscv32-esp']['owner']='$ESPRESSIF_
 # Update versions to use the upstream
 replace_script+="data['packages']['toolchain-xtensa-esp32']['version']='$TOOLCHAIN_VERSION';"
 replace_script+="data['packages']['toolchain-xtensa-esp32s2']['version']='$TOOLCHAIN_VERSION';"
+replace_script+="data['packages']['toolchain-xtensa-esp32s3']['version']='$TOOLCHAIN_VERSION';"
 replace_script+="data['packages']['toolchain-riscv32-esp']['version']='$TOOLCHAIN_VERSION';"
-# Add ESP32-S3 Toolchain
-replace_script+="data['packages'].update({'toolchain-xtensa-esp32s3':{'type':'toolchain','optional':True,'owner':'$ESPRESSIF_ORGANIZATION_NAME','version':'$TOOLCHAIN_VERSION'}});"
+# Add new "framework-arduinoespressif32-libs" package
+# Read "package_esp32_index.template.json" to extract a url to a zip package for "esp32-arduino-libs"
+replace_script+="fpackage=open(os.path.join('package', 'package_esp32_index.template.json'), 'r+');"
+replace_script+="package_data=json.load(fpackage);"
+replace_script+="fpackage.close();"
+replace_script+="libs_package_archive_url=next(next(system['url'] for system in tool['systems'] if system['host'] == 'x86_64-pc-linux-gnu') for tool in package_data['packages'][0]['tools'] if tool['name'] == 'esp32-arduino-libs');"
+replace_script+="data['packages'].update({'framework-arduinoespressif32-libs':{'type':'framework','optional':False,'version':libs_package_archive_url}});"
 replace_script+="data['packages']['toolchain-xtensa-esp32'].update({'optional':False});"
 # esptool.py may require an upstream version (for now platformio is the owner)
 replace_script+="data['packages']['tool-esptoolpy']['version']='$ESPTOOLPY_VERSION';"
@@ -82,10 +89,26 @@ function count_sketches(){ # count_sketches <examples-path>
         local sketchname=$(basename $sketch)
         if [[ "${sketchdirname}.ino" != "$sketchname" ]]; then
             continue
+        elif [ -f $sketchdir/ci.json ]; then
+            # If the target is listed as false, skip the sketch. Otherwise, include it.
+            is_target=$(jq -r '.targets[esp32]' $sketchdir/ci.json)
+            if [[ "$is_target" == "false" ]]; then
+                continue
+            fi
+
+            # Check if the sketch requires any configuration options
+            requirements=$(jq -r '.requires[]? // empty' $sketchdir/ci.json)
+            if [[ "$requirements" != "null" ]] || [[ "$requirements" != "" ]]; then
+                for requirement in $requirements; do
+                    requirement=$(echo $requirement | xargs)
+                    found_line=$(grep -E "^$requirement" "$SDKCONFIG_DIR/esp32/sdkconfig")
+                    if [[ "$found_line" == "" ]]; then
+                        continue 2
+                    fi
+                done
+            fi
         fi
-        if [[ -f "$sketchdir/.test.skip" ]]; then
-            continue
-        fi
+
         echo $sketch >> sketches.txt
         sketchnum=$(($sketchnum + 1))
     done
@@ -155,10 +178,28 @@ function build_pio_sketches(){ # build_pio_sketches <board> <options> <examples-
         local sketchdir=$(dirname $sketch)
         local sketchdirname=$(basename $sketchdir)
         local sketchname=$(basename $sketch)
-        if [ "${sketchdirname}.ino" != "$sketchname" ] \
-        || [ -f "$sketchdir/.test.skip" ]; then
+        if [[ "$sketchdirname.ino" != "$sketchname" ]]; then
             continue
+        elif [ -f $sketchdir/ci.json ]; then
+            # If the target is listed as false, skip the sketch. Otherwise, include it.
+            is_target=$(jq -r '.targets[esp32]' $sketchdir/ci.json)
+            if [[ "$is_target" == "false" ]]; then
+                continue
+            fi
+
+            # Check if the sketch requires any configuration options
+            requirements=$(jq -r '.requires[]? // empty' $sketchdir/ci.json)
+            if [[ "$requirements" != "null" ]] || [[ "$requirements" != "" ]]; then
+                for requirement in $requirements; do
+                    requirement=$(echo $requirement | xargs)
+                    found_line=$(grep -E "^$requirement" "$SDKCONFIG_DIR/esp32/sdkconfig")
+                    if [[ "$found_line" == "" ]]; then
+                        continue 2
+                    fi
+                done
+            fi
         fi
+
         sketchnum=$(($sketchnum + 1))
         if [ "$sketchnum" -le "$start_index" ] \
         || [ "$sketchnum" -gt "$end_index" ]; then
